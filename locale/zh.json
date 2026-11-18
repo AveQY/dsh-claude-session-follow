@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Claude Code 会话跟随",
+    "description": "在模型选择器的「Claude Code · Magpie」分组选择模型后，直接聊天开发。原生 Claude Code 的回复、思考与工具记录流式显示在当前对话；支持多轮上下文、模型切换和正常停止按钮。需要本机 Magpie、已安装的 Claude Code 运行时和 DSH 完全访问模式。"
+  }
+}

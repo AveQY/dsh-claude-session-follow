@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Claude Code session follow",
+    "description": "Choose a model under Claude Code · Magpie, then chat normally. Native Claude Code replies, reasoning and tool records stream into the current conversation, with continued context, model switching and the normal stop button. Requires local Magpie, the installed Claude Code runtime and DSH full access."
+  }
+}

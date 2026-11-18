@@ -1,0 +1,13 @@
+# DSH bundle patch: registers this plugin as a Host bundle entry.
+#
+# `config` is optional. If the DSH Host process exposes DSH_PROFILE_DIR, the
+# Claude Code runtime is located automatically from the installed
+# @deepseek-ai/dsh-subagent-claude-code package. Otherwise point `executable`
+# at your local claude executable, for example:
+#
+#   config:
+#     executable: 'C:\path\to\@anthropic-ai\claude-agent-sdk-win32-x64\claude.exe'
+#
+- insert:
+    - id: claude-session-follow
+      name: '@local/dsh-claude-session-follow'

@@ -1,0 +1,9 @@
+# dependencies (none required at runtime, kept out anyway)
+node_modules/
+
+# verification artifacts produced by tests / real runs
+test/live-*/
+test/runtime-*/
+.dsh-claude-output/
+*.log
+sandbox-work/
