@@ -11,6 +11,20 @@ function fence(text) {
   const marker = '`'.repeat(Math.max(3, ...runs.map(run => run.length + 1)));
   return `${marker}text\n${text}\n${marker}`;
 }
+// Model-facing handle for one durable image reference. Claude Code's Read tool
+// can open image files, so the read-only stored path is enough to let it see
+// the picture without re-sending bytes on every turn.
+export function imageHandleText(ref, readonlyPath) {
+  const digest = String(ref?.attachmentId ?? '').replace(/^sha256:/, '').slice(0, 8);
+  const name = ref?.name ? ` "${ref.name}"` : '';
+  const size = `${ref?.width}x${ref?.height}, ${ref?.bytes} bytes, ${ref?.mediaType}${digest ? `, sha256:${digest}` : ''}`;
+  const identity = `Image${name} (${size})`;
+  if (readonlyPath === undefined) {
+    return `[${identity} was uploaded, but the current execution environment cannot access a readable path. Report that limitation if the image content is needed; do not claim to have seen it.]`;
+  }
+  return `[${identity}: read-only copy saved at "${readonlyPath}". Open that path with your Read tool to view the image; do not modify the stored copy.]`;
+}
+
 export class ClaudeStream {
   constructor({ maxToolOutput = 6000, archiveOutput } = {}) {
     this.maxToolOutput = maxToolOutput;
@@ -163,7 +177,7 @@ export class ClaudeStream {
   }
 }
 
-export function conversationPrompt(options, fileText = ref => `[File: ${ref.name || ref.attachmentId}]`) {
+export function conversationPrompt(options, fileText = ref => `[File: ${ref.name || ref.attachmentId}]`, imageText = ref => imageHandleText(ref, undefined)) {
   const messages = options.messages.map(message => ({
     role: message.role,
     ...(message.toolCallId ? { toolCallId: message.toolCallId, isError: message.isError === true } : {}),
@@ -179,7 +193,7 @@ export function conversationPrompt(options, fileText = ref => `[File: ${ref.name
       if (block.type === 'text') return [{ type: 'text', text: block.text }];
       if (block.type === 'file') return [{ type: 'text', text: fileText(block.attachment) }];
       if (block.type === 'tool-call') return [{ type: 'tool-call', id: block.id, name: block.name, arguments: block.arguments }];
-      if (block.type === 'image') throw new Error('图片尚未投影为可读取的文件，请重新附加图片或使用支持图片的 Magpie 模型。');
+      if (block.type === 'image') return [{ type: 'text', text: imageText(block.attachment) }];
       return []; // Thinking and tool catalog updates are not executable history.
     }),
   }));

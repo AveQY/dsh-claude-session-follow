@@ -1,89 +1,42 @@
-# Claude Code 会话跟随 · dsh-claude-session-follow
+# Claude Code 会话跟随
 
-在 **DeepSeek Harness (DSH)** 的普通聊天里使用原生 **Claude Code** 开发循环：选择模型、正常发消息，回复、思考与工具记录就显示在当前会话；追问继续沿用同一份 DSH 对话历史。底层决策模型由本机 [Magpie](https://127.0.0.1:3425) 提供，可切换成 DeepSeek、GPT 或其他可用模型，切换后下一次 API 请求即生效。
+在 DSH 普通聊天中使用原生 Claude Code 开发循环。选择 **Claude Code · Magpie** 分组中的模型，直接发送任务；回复、思考和已执行的工具记录显示在当前聊天，继续追问也使用当前 DSH 对话。底层模型通过本机 Magpie 选择，可以是 DeepSeek、GPT 或其他可用模型。
 
-> DSH plugin that runs Claude Code as a selectable chat provider. Claude Code is the executor (its native tools), while the reasoning model is whatever Magpie model you pick in the DSH model picker. The plugin forwards each Claude request to your local Magpie gateway and rewrites the model per request, so switching models in the session switches Claude's model from the next request.
+## 直接聊天
 
-## 特性
+1. 打开 DSH 模型选择器，找到 **Claude Code · Magpie** 分组，选择可用模型。
+2. 正常发送任务，例如「检查当前项目，修复问题并运行相关测试」。不需要斜杠命令。
+3. 回复逐段显示；原生工具展示执行中、完成或失败的记录。输出超过 6000 个字符时，聊天显示预览，并将全文保存到工作目录下 `.dsh-claude-output` 的独立文件，通过聊天链接访问。
+4. 直接继续发送后续要求。每轮传入 DSH 保留的完整对话，包含已有要求、回答和工具结果；不依赖隐藏的 Claude 会话，便于重启、续接和分叉。
+5. 使用聊天的 **停止** 按钮取消本轮，回收 Claude 进程和临时端口。未收到工具结果时会显示状态未知；已经完成的文件操作仍然生效。
+6. 在该分组内切换模型，下一次 API 请求使用新选择，包括一次长任务中的后续工具回合。已发出的请求继续完成。选回普通 Magpie 分组，后续新轮次使用原有 DSH 开发循环。
 
-- **普通聊天即用**：模型选择器出现 **Claude Code · Magpie** 分组；选中后正常发送任务，无需斜杠命令。
-- **模型跟随**：每个 API 请求都读取当前会话模型并转发给 Magpie；长任务中途切换模型，后续工具回合也用新模型。
-- **会话隔离**：各 DSH 会话独立运行，同一会话同时只允许一个回复；停止/超时/卸载都会回收 Claude 进程与临时端口。
-- **工具折叠**：原生工具调用与结果各自显示为**可折叠记录**，正文只保留回复；工具已由 Claude 执行，绝不会作为 DSH 工具再次执行。
-- **上下文可恢复**：工具输入/输出同时写入 DSH 原生 `replayState` 隐藏回放元数据，后续轮次可从 DSH 保存的对话历史恢复，不依赖隐藏的 Claude 会话。
-- **超长输出**：单条工具输出超过 6000 字符时，聊天显示有界预览，全文另存到工作目录 `.dsh-claude-output/<uuid>/` 并以链接呈现。
+## 要求和行为
 
-## 依赖与前提
-
-- Windows（当前版本）；Node.js ≥ 22。
-- 已安装 DSH 及插件 `@deepseek-ai/dsh-subagent-claude-code`（插件借用其自带的原生 `claude.exe`，**不需要**在 PATH 里单独安装 `claude` 命令，也**不需要**登录 Anthropic 账号）。
-- 本机 Magpie 网关 `http://127.0.0.1:3425` 可用，且能解析 `MAGPIE_GATEWAY_KEY`。
-- DSH 会话需处于**完全访问（danger-full-access）**模式。
-
-## 安装
-
-这是本地目录形式的 DSH bundle，安装后请保留源码目录（Host 会以 linked 方式加载）。
-
-1. 把本仓库放到任意目录。
-2. 在 DSH 插件管理里以 `install_bundle` 安装该目录（或按其插件管理界面的「安装本地插件」流程选择该目录）。
-3. 重新加载 Host 插件（升级宿主 JavaScript 后仅刷新页面不保证生效）。
-
-### 定位 Claude 运行时
-
-若 DSH Host 进程暴露 `DSH_PROFILE_DIR`，插件会自动从已安装的 `@deepseek-ai/dsh-subagent-claude-code` 解析出 `claude.exe`。如果 Host 未暴露该变量（部分桌面版如此），请在本目录 `cordis.patch.yml` 的 `config.executable` 里显式填写你的 `claude.exe` 路径，例如：
-
-```yaml
-- insert:
-    - id: claude-session-follow
-      name: '@local/dsh-claude-session-follow'
-      config:
-        executable: 'C:\path\to\@anthropic-ai\claude-agent-sdk-win32-x64\claude.exe'
-```
-
-### 卸载
-
-在 DSH 插件管理里停用或卸载 **Claude Code 会话跟随** 即可移除模型分组、命令与工具。
-
-## 使用
-
-1. 打开 DSH 模型选择器，进入 **Claude Code · Magpie** 分组，选一个模型。
-2. 正常发送任务，例如「检查当前项目，修复问题并运行相关测试」。
-3. 回复逐段流式显示；工具记录折叠展示执行中 / 完成 / 失败。点 **停止** 取消本轮。
-4. 直接继续追问；每轮都会传入本对话已保留的完整历史。
-
-在该分组内切换模型：下一次 API 请求使用新模型（已发出的请求继续完成）。切回普通 Magpie 分组，新轮次回到原本的 DSH 开发循环。
+- 当前版本面向 Windows；要求已安装 `@deepseek-ai/dsh-subagent-claude-code`（借用官方原生运行时）、本机 Magpie `http://127.0.0.1:3425`、可解析的 `MAGPIE_GATEWAY_KEY`，以及 DSH 完全访问模式。
+- 开发循环由 Claude Code 执行，底层模型与其工具兼容性由 Magpie 上游决定。选择 GPT 或 DeepSeek 时，执行者仍是 Claude Code，决策模型是所选模型。
+- 原生工具已经执行，调用与结果各自显示为可折叠记录，不会作为 DSH 工具再次执行。完整的原生工具输入和结果同时保存在 DSH 原生的隐藏回放元数据中，供后续 Claude 轮次恢复上下文；超长输出另存文件，折叠记录中显示有界预览和全文链接。
+- 模型目录与 Magpie 分组同步。此路由声明文本与图片输入：DSH 会保留图片块，插件把它投影成一行只读路径句柄（名称、尺寸、`imageHostPath` 映射后的可读路径；无宿主路径时复制到 `.dsh-claude-output/images/`），由 Claude Code 用自带 Read 工具打开查看——图片能否被正确识别取决于所选模型是否支持视觉。标题、摘要等辅助模型请求直接使用 Magpie，不启动开发进程。
+- 各 DSH 会话独立运行；同一会话同时只允许一个普通聊天回复。会话释放、插件停用、停止和超时都会回收资源。默认单请求最多 3 分钟、单轮最多 30 分钟。
+- 失败会显示在本轮结果中，DSH 不会自动重跑可能产生文件操作的开发轮次。不会自动换用其他模型。
+- 不修改全局 Claude 设置、DSH 默认模型或 Magpie provider。原生进程使用独立凭据和本地桥接，屏蔽原生设置来源及交互式提问；需要补充信息时通过回复说明。
+- 每轮向原生 Claude Code 传入 DSH 保留的完整对话。因此原生输入 token 及费用可能高于依赖原生历史续接的方式；实际用量以返回的 usage 为准。
 
 ## 兼容旧版的后台命令
 
-`/claude`、`/claude-new`、`/claude-status`、`/claude-cancel` 以及 `claude_session` 工具保留为**独立后台模式**，其上下文与普通聊天入口互不相通；后台任务不受聊天停止按钮影响，需用 `/claude-cancel` 停止。
+`/claude 任务` 与 `claude_session` 工具保留为独立后台模式，其上下文与普通聊天入口独立：
 
-## 行为与限制
+- `/claude 任务`：后台开始或续接；命令立即返回。
+- `/claude-new 任务`：重置后台上下文并开始。
+- `/claude-status`：查看后台进度和结果。
+- `/claude-cancel`：停止后台任务。
 
-- 执行者是 Claude Code，决策模型由 Magpie 上游决定；选择 GPT/DeepSeek 时执行者仍是 Claude Code。
-- 每轮把 DSH 保留的完整对话序列化后传给原生进程，因此输入 token 与费用可能高于依赖原生历史续接的方式；实际用量以返回 usage 为准。
-- 不修改全局 Claude 设置、DSH 默认模型或 Magpie provider；原生进程使用独立凭据与本地桥接，屏蔽原生设置来源和交互式提问。
-- 失败会显示在本轮结果中，DSH 不会自动重跑可能产生文件操作的开发轮次，也不会自动换模型。
-- 默认单请求最多 3 分钟、单轮最多 30 分钟。
+后台任务不随普通聊天的停止按钮取消，必须使用 `/claude-cancel`。原有 `subagent_claude_code` 保持其自身静态配置。普通聊天应直接选择 **Claude Code · Magpie**。
 
-## 开发
+## 安装与卸载
 
-```bash
-node --test test/*.test.mjs
-```
+本插件是本地目录 bundle，安装后请保留源目录。在 DSH 插件管理中停用或卸载 **Claude Code 会话跟随** 即可移除模型分组、命令和工具。源代码升级后需要重新加载 Host 插件；仅刷新页面不保证更新 Host JavaScript。
 
-`test/live.mjs` 验证旧版后台路径；真实普通聊天验证使用独立会话、限时任务，并保留会话流与文件操作证据。所有验证都会回收子进程与临时端口。
+## 开发检查
 
-## 目录结构
-
-| 文件 | 作用 |
-| --- | --- |
-| `index.js` | 插件入口：注册 `claude-code` LLM 适配器、命令与 `claude_session` 工具 |
-| `chat-adapter.mjs` | 普通聊天适配器：模型目录镜像、按会话取模型、每请求开本地桥转发 Magpie |
-| `chat-stream.mjs` | 原生流映射：文本/思考/工具记录 → DSH 块，附 `replayState` 回放元数据 |
-| `proxy.mjs` | 仅监听回环的 Anthropic 代理，逐请求重写模型并转发到 Magpie |
-| `runner.mjs` | 定位并启动原生 `claude.exe`，解析 stream-json，管理生命周期 |
-| `cordis.patch.yml` | DSH bundle patch |
-
-## License
-
-[MIT](LICENSE)
+使用 Node.js 22 或更新版本执行 `node --test test/*.test.mjs`。`test/live.mjs` 验证旧版后台路径；真实普通聊天集成验证使用独立测试会话和限时任务，保留会话流与文件操作证据。所有验证都必须回收其子进程和临时端口。

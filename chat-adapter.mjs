@@ -4,7 +4,7 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { findClaude, claudeEnvironment } from './runner.mjs';
 import { openBridge } from './proxy.mjs';
-import { ClaudeStream, conversationPrompt } from './chat-stream.mjs';
+import { ClaudeStream, conversationPrompt, imageHandleText } from './chat-stream.mjs';
 
 export const CHAT_PROVIDER = 'claude-code';
 const noRetry = { mode: 'normal', maxRetries: 0, retryableCodes: [], initialDelayMs: 0, maxDelayMs: 0, jitterRatio: 0 };
@@ -33,6 +33,43 @@ export function createChatAdapter(ctx, config = {}) {
   const accepted = [...new Set([CHAT_PROVIDER, ...(config.providers || ['magpie', 'magpie-anthropic'])])];
   const active = new Map();
   let disposed = false;
+  // Resolve one durable image reference to a path the Claude subprocess can open.
+  const imagePath = ref => {
+    try {
+      const hostPath = ctx.get?.('attachments')?.imageHostPath?.(ref);
+      if (hostPath === undefined) return undefined;
+      return ctx.get?.('fs')?.processPathFromHostPath?.(hostPath) ?? hostPath;
+    } catch {
+      return undefined;
+    }
+  };
+  const imageExtensions = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp', 'image/gif': 'gif' };
+  // Every image gets a path Claude Code's Read tool can open. Prefer the
+  // attachment service's host object; otherwise copy the bytes into the
+  // conversation's own output directory.
+  async function imageFiles(messages, cwd, signal) {
+    const files = new Map();
+    for (const message of messages || []) {
+      for (const block of message?.content || []) {
+        if (block?.type !== 'image' || !block.attachment) continue;
+        const ref = block.attachment;
+        if (files.has(ref.attachmentId)) continue;
+        const direct = imagePath(ref);
+        if (direct !== undefined) { files.set(ref.attachmentId, direct); continue; }
+        try {
+          const stored = await ctx.get?.('attachments')?.readImage?.(ref, signal);
+          if (!stored?.data) continue;
+          const directory = join(cwd, '.dsh-claude-output', 'images');
+          mkdirSync(directory, { recursive: true });
+          const extension = imageExtensions[ref.mediaType] || 'img';
+          const file = join(directory, `${String(ref.attachmentId).replace(/^sha256:/, '').slice(0, 16)}.${extension}`);
+          writeFileSync(file, stored.data);
+          files.set(ref.attachmentId, file.replace(/\\/g, '/'));
+        } catch {}
+      }
+    }
+    return files;
+  }
   const adapter = {
     providerInfo: provider => ({ id: provider, name: 'Claude Code · Magpie' }),
     providerRetryPolicy: () => noRetry,
@@ -40,14 +77,14 @@ export function createChatAdapter(ctx, config = {}) {
     imageRequestTarget: (_provider, _model, image) => ({ width: image.width, height: image.height, maxBytes: image.bytes }),
     async listModels(provider) {
       return (await ctx.llm.listModels(baseProvider)).map(model => ({
-        ...model, provider, inputModalities: ['text'],
+        ...model, provider, inputModalities: ['text', 'image'],
         description: '原生 Claude Code 开发；回复与工具进度直接显示在当前 DSH 聊天。',
         badge: { text: 'Claude Code', tone: 'info' },
       }));
     },
     async resolveModel(provider, model, signal) {
       const info = await ctx.llm.resolveModelInfo(baseProvider, model, signal);
-      return { ...info, provider, inputModalities: ['text'] };
+      return { ...info, provider, inputModalities: ['text', 'image'] };
     },
     async prepareCall(provider, model, signal) {
       return { model: await adapter.resolveModel(provider, model, signal), stream: options => adapter.stream(options) };
@@ -82,8 +119,9 @@ export function createChatAdapter(ctx, config = {}) {
         timer = setTimeout(() => controller.abort(new Error('Claude Code 回复超过总时限')), config.maxRunMs ?? 1800000);
         timer.unref?.();
         signal.throwIfAborted();
-        const prompt = conversationPrompt(options, ref => ctx.llm.fileRequestText(ref));
         const cwd = await ctx.workingDirectory.ensure(agent, signal);
+        const images = await imageFiles(options.messages, cwd, signal);
+        const prompt = conversationPrompt(options, ref => ctx.llm.fileRequestText(ref), ref => imageHandleText(ref, images.get(ref.attachmentId)));
         outputDirectory = join(cwd, '.dsh-claude-output', randomUUID());
         const headers = attribution(config);
         bridge = await openBridge({

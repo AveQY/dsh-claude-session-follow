@@ -1,8 +1,9 @@
 {
   "name": "@local/dsh-claude-session-follow",
-  "version": "2.0.1",
+  "version": "2.0.2",
+  "private": true,
   "type": "module",
-  "description": "Run Claude Code in DSH as a selectable chat provider, following the session's Magpie model on every request.",
+  "description": "Run Claude Code in DSH with a session-isolated Magpie bridge that follows the current model on every request.",
   "engines": { "node": ">=22", "dsh": "0.2.2-rc.3" },
   "exports": {
     ".": "./index.js",
@@ -10,7 +11,7 @@
     "./locale/*.json": "./locale/*.json",
     "./package.json": "./package.json"
   },
-  "files": ["index.js", "proxy.mjs", "runner.mjs", "chat-adapter.mjs", "chat-stream.mjs", "cordis.patch.yml", "locale", "icon.svg", "README.md", "LICENSE"],
+  "files": ["index.js", "proxy.mjs", "runner.mjs", "chat-adapter.mjs", "chat-stream.mjs", "cordis.patch.yml", "locale", "icon.svg", "README.md"],
   "scripts": { "test": "node --test test/*.test.mjs" },
   "dsh": { "bundle": { "patch": "./cordis.patch.yml" } }
 }

@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { PassThrough } from 'node:stream';
-import { ClaudeStream, conversationPrompt } from '../chat-stream.mjs';
+import { ClaudeStream, conversationPrompt, imageHandleText } from '../chat-stream.mjs';
 import { CHAT_PROVIDER, createChatAdapter } from '../chat-adapter.mjs';
 
 const event = value => ({ type: 'stream_event', event: value });
@@ -116,12 +116,13 @@ test('full retained history carries prior instructions, tool output and latest r
   assert.match(files, /Read spec.md at owned-path/);
 });
 
-function harness({ automatic = true } = {}) {
+function harness({ automatic = true, services = {} } = {}) {
   let launchCount = 0, terminationCount = 0, lastSpec, released = false;
   const agents = new Map(['one', 'two'].map(id => [id, { id, session: {}, model: { current: () => ({ provider: CHAT_PROVIDER, model: 'test/model' }) } }]));
   const children = [];
   const auxiliary = [];
   const ctx = {
+    get: key => services[key],
     agents: { get: id => agents.get(id) },
     sandboxPolicy: { resolve: () => ({ mode: 'danger-full-access' }) },
     workingDirectory: { ensure: async (_agent, signal) => { signal.throwIfAborted(); return process.cwd(); } },
@@ -159,6 +160,40 @@ function harness({ automatic = true } = {}) {
   };
 }
 const collect = async iterable => { const result = []; for await (const chunk of iterable) result.push(chunk); return result; };
+
+test('image blocks project to a readable path handle and degrade when no path resolves', () => {
+  const image = { type: 'image', attachment: { attachmentId: 'sha256:abcdef0123456789', mediaType: 'image/jpeg', bytes: 99, width: 30, height: 40, name: 'photo.jpg' } };
+  const withPath = conversationPrompt({ messages: [{ role: 'user', content: [image] }] }, undefined, ref => imageHandleText(ref, 'D:/x/photo.jpg'));
+  assert(withPath.includes('photo.jpg'));
+  assert(withPath.includes('30x40, 99 bytes, image/jpeg, sha256:abcdef01'));
+  assert(withPath.includes('D:/x/photo.jpg'));
+  assert(withPath.includes('Read tool'));
+  const noPath = conversationPrompt({ messages: [{ role: 'user', content: [image] }] });
+  assert(noPath.includes('cannot access a readable path'));
+  assert(noPath.includes('do not claim'));
+  assert(!noPath.includes('D:/x/photo.jpg'));
+});
+
+test('adapter resolves image attachments to a process path the Claude subprocess can open', async () => {
+  const app = harness({ services: {
+    attachments: { imageHostPath: ref => `C:/store/${String(ref.attachmentId).replace(/^sha256:/, '')}.png` },
+    fs: { processPathFromHostPath: hostPath => hostPath.replace('C:/store/', 'D:/world/') },
+  } });
+  const image = { role: 'user', content: [{ type: 'image', attachment: { attachmentId: 'sha256:abcdef0123456789', mediaType: 'image/png', bytes: 1234, width: 10, height: 20, name: 'shot.png' } }] };
+  try {
+    const chunks = await collect(app.chat.adapter.stream({ ...app.options('one'), messages: [image] }));
+    assert.equal(textOf(chunks), 'Native reply');
+    const data = app.spec.stdio.stdin.data;
+    assert(data.includes('Image'));
+    assert(data.includes('shot.png'));
+    assert(data.includes('read-only copy saved at'));
+    assert(data.includes('D:/world/abcdef0123456789.png'));
+    assert(!data.includes('cannot access a readable path'));
+    assert(!data.includes('图片尚未投影'));
+    assert.deepEqual((await app.chat.adapter.resolveModel(CHAT_PROVIDER, 'test/model')).inputModalities, ['text', 'image']);
+    assert.deepEqual((await app.chat.adapter.listModels(CHAT_PROVIDER))[0].inputModalities, ['text', 'image']);
+  } finally { await app.chat.dispose(); }
+});
 
 test('normal chat sends complete history and streams final reply, with stateless persistence and cleanup', async () => {
   const app = harness();
